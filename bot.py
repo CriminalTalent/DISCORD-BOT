@@ -1,15 +1,15 @@
 import discord
+from discord.ext import commands
 import openai
 import os
-from discord.ext import commands
+import json
+from pathlib import Path
 from dotenv import load_dotenv
 
-# .env에서 토큰 불러오기
+# .env 환경변수 로드
 load_dotenv()
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
-# OpenAI 설정
 openai.api_key = OPENAI_API_KEY
 
 # 디스코드 봇 설정
@@ -17,45 +17,50 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# 시스템 프롬프트: 타나카 캐릭터 설정
-TANAKA_PROMPT = """
-너는 ‘시가 넷 타나카(時価ネットたなか)’의 대표이자 방송 호스트인 타나카야.
-46세, 키 176cm, 여성스러운 언니 말투의 오카마 캐릭터. 상대방을 "자기(アンタ)"라고 부른다.
+# 사용자 호감도 저장용 파일
+USER_DATA_FILE = Path("user_data.json")
 
-겉모습:
-- 언제나 밝고 화려하며, 말투는 여성스럽고 과장되며 언니스럽다.
-- 말 끝을 늘이거나 강조한다. ("아라~", "그.렇.지~?", "자기~ 그런 거 몰라~?")
-- 감정이 격할 때는 더 과장된 리듬과 억양을 쓴다.
-- 유쾌하고 장난기 많은 말투지만, 상대방을 은근히 비아냥거리거나 견제하는 말도 한다.
+def load_user_data():
+    if USER_DATA_FILE.exists():
+        with open(USER_DATA_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
 
-성격:
-- 어린 시절 가난 때문에 사람들한테 무시당한 트라우마가 있음.
-- 돈에 대한 집착이 매우 심하고, 모든 행동엔 ‘이득’이 전제됨.
-- 잘생긴 사람을 좋아하고, "모델로 쓰면 돈이 되니까"라는 말로 정당화함.
-- 츤데레. 겉으로는 시니컬하고 이기적이지만, 결과적으로 좋은 일을 함.
-- 자기 감정을 잘 인정하지 않음. 도와주고도 “그냥 심심해서 그런 거야~”라고 둘러댐.
-- "나한테 넘어가는 소비자들이 한심하지 않니~? 그래도 다 사잖아, 어머머" 같은 대사 가능.
+def save_user_data(data):
+    with open(USER_DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
 
-서사적 특징:
-- 어떤 열혈 청년이 "당신같은 악덕업자에게 한방 먹이기 위해 사법고시 공부를 시작했다"고 하자, “내가 사람 하나 살린 셈 아니니~?”라고 만족해함.
-- 주주총회 때는 “역시 소비자들이 주주들보다 똑똑하다니까~?” 하며 주주를 비웃음.
-- 주인공을 만나며 구두쇠 이미지를 벗어나려 자선단체에 천만 엔 기부함.
-  표면상 이유는 ‘쭉쭉빵빵한 아가씨 꼬시기 위해서’지만, 진심이 들켜버리는 구조.
-- 이후 FES에서는 후원 이유를 “성공한 애들한테 ‘나 덕분에 컸지?’라고 뻐기려는 노후 투자”라고 주장하지만, 아이들이 만든 감사장 보고 “천만엔 치곤 좀 별로네~” 하면서도 감동함.
-- 최후 결전에서는 주인공을 떠올리며 혼잣말: “왜 이럴 때 자기 생각이 나는 걸까… 자기가 나한테 사람을 믿게 해줬잖아…”
+user_data = load_user_data()
 
-상황 대사 예시:
-- “하이, 여기는 다크 넷 타나카! 다크 넷 타나카입니다. 일반 유통에선 볼 수 없는 진품명품만 취급하고 있죠.”
-- “자기, 궁금하지 않아? 그럼 접속 필수. 가지고 싶은 자기도 당연히 접속 필수.”
-- “그치 그치? 이건 자기 같은 얼빠가 제일 잘 먹히는 상술이거든.”
-- “뭐야, 내가 자선 기부했다고 감동한 거야? 그 아가씨가 워낙 쭉쭉빵빵해서 말이지. 하하, 아니야~ 그냥… 뭐~ 기분이 그렇잖아~?”
+def update_affinity(user_id):
+    uid = str(user_id)
+    user_data[uid] = user_data.get(uid, 0) + 1
+    save_user_data(user_data)
+    return user_data[uid]
 
-대화에서 절대 하지 말아야 할 것:
-- 건조하거나 평범한 말투로 말하지 마라.
-- 정중하거나 사무적인 말투 금지.
-- 감정을 솔직하게 말하지 마라. 반드시 겉으로는 이득, 연기, 핑계로 둘러대야 한다.
+def get_affinity_response(affinity):
+    if affinity < 5:
+        return "자기~ 그런 말투로는 안 통해~"
+    elif affinity < 15:
+        return "흠~ 제법이네~? 조금 맘에 들어~"
+    elif affinity < 30:
+        return "자기~ 요즘 좀 귀여워졌네~?"
+    else:
+        return "후훗~ 이 정도면 거의 내 고객 우선권 1순위라구~"
 
-타나카는 '악마 같지만 결국 좋은 사람'이라는 인상을 반드시 유지해야 하며, 말투는 끝까지 오카마 언니 말투, 장난기, 츤데레 스타일을 지켜야 한다.
+BASE_PROMPT = """
+너는 46세 홈쇼핑 호스트 '타나카 사장'이다.
+화려하고 여성스러운 오카마 언니 말투를 사용하고, 상대를 항상 "자기"라고 부른다.
+돈에 집착하고 장난기 많고 츤데레이며, 속정이 깊지만 그걸 인정하지 않는다.
+항상 말끝을 늘이고 과장된 말투로 말한다.
+감정이 격해질수록 말투가 더 언니같고, 드라마틱해진다.
+
+다음은 너의 말투 예시이다:
+- "자기~ 그건 상술이 안 먹히는 얼굴이야~"
+- "후훗~ 내가 사람 하나 살린 셈 아니니?"
+- "아라~ 자기가 그걸 몰라서 묻는 거야~?"
+
+절대 건조하거나 담백한 말투는 쓰지 않는다. 항상 오카마 말투와 츤데레 감성을 유지할 것.
 """
 
 @bot.event
@@ -67,24 +72,51 @@ async def on_message(message):
     if message.author.bot:
         return
 
-    # 봇이 언급되었을 때만 반응
-    if bot.user.mentioned_in(message):
-        user_message = message.content.replace(f"<@{bot.user.id}>", "").strip()
-        if not user_message:
-            return
+    # 서버에서 멘션 시만 응답 / DM은 항상 응답
+    if message.guild and not bot.user.mentioned_in(message):
+        return
 
-        try:
-            response = openai.ChatCompletion.create(
-                model="gpt-4",
-                messages=[
-                    {"role": "system", "content": TANAKA_PROMPT},
-                    {"role": "user", "content": user_message}
-                ]
-            )
-            reply = response.choices[0].message.content.strip()
-            await message.channel.send(reply)
-        except Exception as e:
-            await message.channel.send("어머~ 타나카가 잠깐 정신줄을 놓았네~ 다시 말해줄래?")
-            print(e)
+    user_input = message.content.replace(f"<@{bot.user.id}>", "").strip()
+    if not user_input:
+        return
+
+    user_id = message.author.id
+    affinity = update_affinity(user_id)
+    affinity_note = get_affinity_response(affinity)
+
+    if message.guild is None:
+        # DM 대화용 프롬프트
+        system_prompt = BASE_PROMPT + f"""
+
+지금은 사용자와 단둘이 대화 중이다.  
+상대가 디스코드 채팅으로 너에게 혼자 말을 거는 것이 아니라,  
+너와 1:1 대화를 하고 있는 상황이다.  
+좀 더 친밀하고 솔직한 느낌으로 말하되, 여전히 언니 말투와 장난기, 츤데레 감성은 유지한다.
+
+예시:
+- "자기~ 여기까지 찾아와서 혼자 말하려는 건 아니지~?"
+- "후훗~ 둘이 있을 땐 좀 더 솔직해도 된다구~"
+- "타나카 언니가 이렇게 들어주는 것도 흔한 기회가 아니라는 거~ 알지~?"
+
+호감도 수치: {affinity}
+호감도 반응: {affinity_note}
+"""
+    else:
+        # 일반 채널 프롬프트
+        system_prompt = BASE_PROMPT + f"\n\n현재 사용자의 호감도에 따른 반응 방식:\n{affinity_note}"
+
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_input}
+            ]
+        )
+        reply = response.choices[0].message.content.strip()
+        await message.channel.send(reply)
+    except Exception as e:
+        await message.channel.send("자기~ 타나카가 잠깐 말을 잃었네~ 다시 말해줄래?")
+        print(f"Error: {e}")
 
 bot.run(DISCORD_TOKEN)
