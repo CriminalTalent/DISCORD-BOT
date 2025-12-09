@@ -8,18 +8,12 @@ import pytz
 
 class SheetManager:
     def __init__(self, credentials_file, sheet_id):
-        """
-        구글 시트 매니저 초기화
-        
-        Args:
-            credentials_file: 서비스 계정 JSON 파일 경로
-            sheet_id: 구글 시트 ID
-        """
         self.credentials_file = credentials_file
         self.sheet_id = sheet_id
         self.client = None
         self.spreadsheet = None
         self._connect()
+        self._ensure_sheets()
     
     def _connect(self):
         """구글 시트 연결"""
@@ -42,116 +36,267 @@ class SheetManager:
             print(f"[SHEET ERROR] 연결 실패: {e}")
             raise
     
+    def _ensure_sheets(self):
+        """필요한 시트들이 존재하는지 확인하고 없으면 생성"""
+        required_sheets = {
+            '사용자': ['ID', '이름', '갈레온', '아이템', '메모', '기숙사', 
+                      '마지막베팅날짜', '베팅횟수', '출석날짜', '마지막타로날짜', '기숙사점수'],
+            '아이템': ['아이템명', '설명', '가격', '판매여부', '사용가능여부'],
+            '로그': ['타임스탬프', '사용자', '명령어', '내용']
+        }
+        
+        existing_sheets = [ws.title for ws in self.spreadsheet.worksheets()]
+        
+        for sheet_name, headers in required_sheets.items():
+            if sheet_name not in existing_sheets:
+                print(f"[SHEET] '{sheet_name}' 시트 생성 중...")
+                ws = self.spreadsheet.add_worksheet(
+                    title=sheet_name,
+                    rows=100,
+                    cols=len(headers)
+                )
+                ws.append_row(headers)
+                print(f"[SHEET] '{sheet_name}' 시트 생성 완료")
+    
     def get_worksheet(self, sheet_name):
-        """
-        특정 시트 가져오기 (없으면 생성)
-        
-        Args:
-            sheet_name: 시트 이름
-        
-        Returns:
-            worksheet 객체
-        """
+        """시트 가져오기"""
         try:
-            worksheet = self.spreadsheet.worksheet(sheet_name)
+            return self.spreadsheet.worksheet(sheet_name)
         except gspread.exceptions.WorksheetNotFound:
-            print(f"[SHEET] '{sheet_name}' 시트 생성")
-            worksheet = self.spreadsheet.add_worksheet(
-                title=sheet_name,
-                rows=100,
-                cols=10
-            )
-            # 헤더 추가
-            worksheet.append_row(['타임스탬프', '사용자', '명령어', '내용'])
+            print(f"[ERROR] '{sheet_name}' 시트를 찾을 수 없습니다.")
+            return None
+    
+    # ============================================
+    # 사용자 관리
+    # ============================================
+    
+    def find_user(self, user_id):
+        """사용자 찾기"""
+        try:
+            ws = self.get_worksheet('사용자')
+            if not ws:
+                return None
+            
+            records = ws.get_all_records()
+            
+            for idx, record in enumerate(records, start=2):
+                if str(record.get('ID', '')).strip() == str(user_id).strip():
+                    return {
+                        'row': idx,
+                        'id': record.get('ID', ''),
+                        'name': record.get('이름', ''),
+                        'galleons': int(record.get('갈레온', 0)),
+                        'items': record.get('아이템', ''),
+                        'memo': record.get('메모', ''),
+                        'house': record.get('기숙사', ''),
+                        'last_bet_date': record.get('마지막베팅날짜', ''),
+                        'bet_count': int(record.get('베팅횟수', 0)),
+                        'attendance_date': record.get('출석날짜', ''),
+                        'last_tarot_date': record.get('마지막타로날짜', ''),
+                        'house_score': int(record.get('기숙사점수', 0))
+                    }
+            
+            return None
+            
+        except Exception as e:
+            print(f"[ERROR] find_user 실패: {e}")
+            return None
+    
+    def create_user(self, user_id, name, initial_galleons=100):
+        """새 사용자 생성"""
+        try:
+            ws = self.get_worksheet('사용자')
+            if not ws:
+                return False
+            
+            row = [
+                str(user_id),
+                str(name),
+                initial_galleons,
+                '',
+                '',
+                '',
+                '',
+                0,
+                '',
+                '',
+                0
+            ]
+            
+            ws.append_row(row)
+            print(f"[USER] 새 사용자 생성: {name} (ID: {user_id})")
+            return True
+            
+        except Exception as e:
+            print(f"[ERROR] create_user 실패: {e}")
+            return False
+    
+    def update_user(self, user_id, updates):
+        """사용자 정보 업데이트"""
+        try:
+            user = self.find_user(user_id)
+            if not user:
+                return False
+            
+            ws = self.get_worksheet('사용자')
+            row = user['row']
+            
+            col_map = {
+                'id': 1, 'name': 2, 'galleons': 3, 'items': 4,
+                'memo': 5, 'house': 6, 'last_bet_date': 7,
+                'bet_count': 8, 'attendance_date': 9,
+                'last_tarot_date': 10, 'house_score': 11
+            }
+            
+            for key, value in updates.items():
+                if key in col_map:
+                    col = col_map[key]
+                    ws.update_cell(row, col, value)
+            
+            print(f"[USER] 업데이트 완료: {user_id}")
+            return True
+            
+        except Exception as e:
+            print(f"[ERROR] update_user 실패: {e}")
+            return False
+    
+    # ============================================
+    # 아이템 관리
+    # ============================================
+    
+    def find_item(self, item_name):
+        """아이템 정보 찾기"""
+        try:
+            ws = self.get_worksheet('아이템')
+            if not ws:
+                return None
+            
+            records = ws.get_all_records()
+            
+            for record in records:
+                if record.get('아이템명', '').strip() == item_name.strip():
+                    return {
+                        'name': record.get('아이템명', ''),
+                        'description': record.get('설명', ''),
+                        'price': int(record.get('가격', 0)),
+                        'sellable': str(record.get('판매여부', '')).upper() == 'TRUE',
+                        'usable': str(record.get('사용가능여부', '')).upper() == 'TRUE'
+                    }
+            
+            return None
+            
+        except Exception as e:
+            print(f"[ERROR] find_item 실패: {e}")
+            return None
+    
+    def get_all_items(self, sellable_only=False):
+        """모든 아이템 목록 가져오기"""
+        try:
+            ws = self.get_worksheet('아이템')
+            if not ws:
+                return []
+            
+            records = ws.get_all_records()
+            items = []
+            
+            for record in records:
+                item = {
+                    'name': record.get('아이템명', ''),
+                    'description': record.get('설명', ''),
+                    'price': int(record.get('가격', 0)),
+                    'sellable': str(record.get('판매여부', '')).upper() == 'TRUE',
+                    'usable': str(record.get('사용가능여부', '')).upper() == 'TRUE'
+                }
+                
+                if sellable_only and not item['sellable']:
+                    continue
+                
+                items.append(item)
+            
+            return items
+            
+        except Exception as e:
+            print(f"[ERROR] get_all_items 실패: {e}")
+            return []
+    
+    def add_item_to_user(self, user_id, item_name):
+        """사용자에게 아이템 추가"""
+        user = self.find_user(user_id)
+        if not user:
+            return False
         
-        return worksheet
+        items = user['items'].split(',') if user['items'] else []
+        items = [i.strip() for i in items if i.strip()]
+        items.append(item_name)
+        
+        return self.update_user(user_id, {'items': ','.join(items)})
+    
+    def remove_item_from_user(self, user_id, item_name):
+        """사용자에게서 아이템 제거"""
+        user = self.find_user(user_id)
+        if not user:
+            return False
+        
+        items = user['items'].split(',') if user['items'] else []
+        items = [i.strip() for i in items if i.strip()]
+        
+        if item_name in items:
+            items.remove(item_name)
+            return self.update_user(user_id, {'items': ','.join(items)})
+        
+        return False
+    
+    def get_user_items(self, user_id):
+        """사용자 아이템 목록"""
+        user = self.find_user(user_id)
+        if not user:
+            return {}
+        
+        items = user['items'].split(',') if user['items'] else []
+        items = [i.strip() for i in items if i.strip()]
+        
+        item_counts = {}
+        for item in items:
+            item_counts[item] = item_counts.get(item, 0) + 1
+        
+        return item_counts
+    
+    # ============================================
+    # 로그
+    # ============================================
     
     def log_message(self, user, command, content):
-        """
-        메시지 로그 기록
-        
-        Args:
-            user: 사용자명 (Discord username)
-            command: 명령어
-            content: 내용
-        """
+        """로그 기록"""
         try:
-            worksheet = self.get_worksheet('로그')
+            ws = self.get_worksheet('로그')
+            if not ws:
+                return False
             
-            # 한국 시간
             kst = pytz.timezone('Asia/Seoul')
             timestamp = datetime.now(kst).strftime('%Y-%m-%d %H:%M:%S')
             
             row = [timestamp, str(user), str(command), str(content)]
-            worksheet.append_row(row)
+            ws.append_row(row)
             
-            print(f"[LOG] 저장 완료: {user} - {command}")
             return True
             
         except Exception as e:
-            print(f"[LOG ERROR] 저장 실패: {e}")
+            print(f"[LOG ERROR] {e}")
             return False
     
     def get_recent_logs(self, limit=10):
-        """
-        최근 로그 가져오기
-        
-        Args:
-            limit: 가져올 로그 개수
-        
-        Returns:
-            로그 리스트 (딕셔너리 형태)
-        """
+        """최근 로그 조회"""
         try:
-            worksheet = self.get_worksheet('로그')
-            all_records = worksheet.get_all_records()
+            ws = self.get_worksheet('로그')
+            if not ws:
+                return []
             
-            # 최근 N개만 (역순)
-            recent = all_records[-limit:] if len(all_records) > limit else all_records
+            records = ws.get_all_records()
+            recent = records[-limit:] if len(records) > limit else records
             recent.reverse()
             
             return recent
             
         except Exception as e:
-            print(f"[LOG ERROR] 조회 실패: {e}")
+            print(f"[LOG ERROR] {e}")
             return []
-    
-    def search_logs(self, keyword):
-        """
-        키워드로 로그 검색
-        
-        Args:
-            keyword: 검색 키워드
-        
-        Returns:
-            검색 결과 리스트
-        """
-        try:
-            worksheet = self.get_worksheet('로그')
-            all_records = worksheet.get_all_records()
-            
-            # 키워드가 포함된 로그만 필터링
-            results = [
-                record for record in all_records
-                if keyword.lower() in str(record.get('내용', '')).lower()
-                or keyword.lower() in str(record.get('명령어', '')).lower()
-            ]
-            
-            return results
-            
-        except Exception as e:
-            print(f"[SEARCH ERROR] 검색 실패: {e}")
-            return []
-    
-    def clear_logs(self):
-        """로그 시트 초기화 (헤더 제외)"""
-        try:
-            worksheet = self.get_worksheet('로그')
-            worksheet.clear()
-            worksheet.append_row(['타임스탬프', '사용자', '명령어', '내용'])
-            print("[LOG] 로그 초기화 완료")
-            return True
-            
-        except Exception as e:
-            print(f"[CLEAR ERROR] 초기화 실패: {e}")
-            return False
