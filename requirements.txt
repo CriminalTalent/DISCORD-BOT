@@ -1,14 +1,7 @@
-# Discord 봇 라이브러리
 discord.py==2.3.2
-
-# 구글 시트 연동
 gspread==5.12.0
 google-auth==2.23.4
 google-auth-oauthlib==1.1.0
 google-auth-httplib2==0.1.1
-
-# 환경 변수 관리
 python-dotenv==1.0.0
-
-# 날짜/시간 처리
 pytz==2023.3
